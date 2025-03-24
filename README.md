@@ -1,17 +1,27 @@
 # RUNSTR DVM - Running Notes Data Vending Machine
 
-RUNSTR DVM is a Nostr-based Data Vending Machine (DVM) that processes and analyzes running-related notes. It implements the [NIP-90](https://github.com/nostr-protocol/nips/blob/master/90.md) specification for DVMs in the Nostr ecosystem.
+RUNSTR DVM is a Nostr-based Data Vending Machine (DVM) that processes and monitors running-related notes. It implements the [NIP-90](https://github.com/nostr-protocol/nips/blob/master/90.md) specification for DVMs in the Nostr ecosystem and supports [NIP-101e](https://github.com/nostr-protocol/nips/pull/1816) for structured workout events.
 
 ## Features
 
+- **Running Notes Feed**: Monitors and collects Nostr notes with running-related hashtags:
+  - #runstr
+  - #Runstr
+  - #running
+  - #Running
+  
+- **Workout Events (NIP-101e)**: Supports standardized workout data format including:
+  - Exercise Templates (kind 33401)
+  - Workout Templates (kind 33402)
+  - Workout Records (kind 1301)
+  - Running-specific metrics (pace, cadence, heart rate, splits)
+  
 - **Running Notes Parser**: Extracts structured data from free-form running notes, including:
   - Distance
   - Time
   - Pace
   - Elevation
   - Heart rate
-  - Weather conditions
-  - Mood
   
 - **Activity Summary**: Aggregates multiple running activities to generate insights, including:
   - Total distance and time
@@ -66,36 +76,117 @@ The DVM will:
 1. Connect to the configured Nostr relays
 2. Publish its capabilities to the network
 3. Listen for task requests
-4. Start the HTTP API server
+4. Monitor for running-related hashtags and workout events
+5. Start the HTTP API server
 
 ## Using the DVM
 
-### Via Nostr
+### Accessing the Running Feed
 
-To use the DVM through Nostr:
+The DVM monitors Nostr for posts with running-related hashtags and maintains a feed of the most recent notes. You can access this feed in two ways:
 
-1. Find the DVM's public key (printed when the DVM starts)
-2. Send a NIP-90 task request (kind: 23194) with one of the supported tasks:
-   - `running_notes`
-   - `activity_summary`
-3. Wait for the task result event (kind: 23195)
+#### Via HTTP API
 
-See `examples/nostr_example.js` for a complete example.
+Send a GET request to the running feed endpoint:
+```
+GET /api/running_feed
+```
 
-### Via HTTP API
+Optional query parameters:
+- `limit`: Maximum number of notes to return (default: 20)
+- `since`: Unix timestamp to get notes from (default: 0)
+- `until`: Unix timestamp to get notes until (default: now)
+- `include_workouts`: Whether to include workout events (default: true)
 
-To use the DVM through its HTTP API:
+Example:
+```
+GET /api/running_feed?limit=10&since=1651363200
+```
 
-1. Send a POST request to one of the endpoints:
-   - `/api/running_notes`
-   - `/api/activity_summary`
-2. Receive the structured data in the response
+### Working with Workout Events (NIP-101e)
 
-See `examples/api_example.js` for a complete example.
+The DVM supports the structured workout events format proposed in NIP-101e, including exercise templates, workout templates, and workout records specifically optimized for running activities.
 
-## API Reference
+#### Creating Workout Events
 
-### Running Notes Task
+You can create workout events by publishing Nostr events with the appropriate kinds:
+
+- **Exercise Template (kind 33401)**: Define a running exercise pattern
+  ```json
+  {
+    "kind": 33401,
+    "content": "Easy pace run on flat terrain. Focus on maintaining consistent effort.",
+    "tags": [
+      ["d", "<UUID>"],
+      ["title", "Easy Run"],
+      ["format", "distance", "duration", "pace", "gps_data", "elevation_gain"],
+      ["format_units", "km", "seconds", "min/km", "polyline", "m"],
+      ["equipment", "cardio"],
+      ["difficulty", "beginner"],
+      ["t", "running"],
+      ["t", "cardio"]
+    ]
+  }
+  ```
+
+- **Workout Record (kind 1301)**: Record a completed running workout
+  ```json
+  {
+    "kind": 1301,
+    "content": "Morning run felt great. Perfect weather conditions.",
+    "tags": [
+      ["d", "<UUID>"],
+      ["title", "Morning 5K"],
+      ["type", "cardio"],
+      ["start", "1706454000"],
+      ["end", "1706455800"],
+      ["exercise", "33401:<pubkey>:<UUID-running>", "<relay-url>", "5", "1800", "4:52", "encoded_polyline_string", "125"],
+      ["cadence_avg", "172", "spm"],
+      ["heart_rate_avg", "142", "bpm"],
+      ["weather_temp", "18", "c"],
+      ["weather_humidity", "65", "%"],
+      ["weather_condition", "partly_cloudy"],
+      ["split", "1", "1000", "m", "3:45", "155", "bpm"],
+      ["split", "2", "1000", "m", "3:52", "158", "bpm"],
+      ["completed", "true"],
+      ["t", "running"]
+    ]
+  }
+  ```
+
+See `examples/workout_events_example.js` for a complete example of creating and working with workout events.
+
+#### Accessing Workout Templates and Records
+
+**Workout Templates Endpoint:**
+```
+GET /api/workout_templates
+```
+
+Optional query parameters:
+- `limit`: Maximum number of templates to return (default: 20)
+- `since`: Unix timestamp to get templates from (default: 0)
+- `until`: Unix timestamp to get templates until (default: now)
+- `type`: Type of templates to return (`exercise`, `workout`, or not specified for both)
+
+**Workout Records Endpoint:**
+```
+GET /api/workout_records
+```
+
+Optional query parameters:
+- `limit`: Maximum number of records to return (default: 20)
+- `since`: Unix timestamp to get records from (default: 0)
+- `until`: Unix timestamp to get records until (default: now)
+- `completed`: Filter by completion status (`true`, `false`, or not specified for both)
+
+### Other Available Tasks
+
+The DVM also supports the following tasks:
+
+#### Running Notes Task
+
+Parses running-related information from note content:
 
 **Endpoint:** `/api/running_notes`  
 **Method:** POST  
@@ -106,34 +197,9 @@ See `examples/api_example.js` for a complete example.
 }
 ```
 
-**Response Format:**
-```json
-{
-  "success": true,
-  "result": {
-    "rawContent": "Your running note text here",
-    "extractedData": {
-      "distance": { "value": 5.2, "unit": "miles" },
-      "time": { 
-        "hours": 0, 
-        "minutes": 45, 
-        "seconds": 30, 
-        "totalSeconds": 2730,
-        "formatted": "00:45:30"
-      },
-      "pace": {
-        "minutes": 8,
-        "seconds": 45,
-        "unit": "mi",
-        "formatted": "8:45/mi"
-      }
-      // Additional extracted data...
-    }
-  }
-}
-```
+#### Activity Summary Task
 
-### Activity Summary Task
+Summarizes running activities from a collection of notes:
 
 **Endpoint:** `/api/activity_summary`  
 **Method:** POST  
@@ -152,40 +218,10 @@ See `examples/api_example.js` for a complete example.
           "totalSeconds": 1500,
           "formatted": "00:25:00"
         }
-        // Other activity data...
       }
     }
     // Additional activities...
   ]
-}
-```
-
-**Response Format:**
-```json
-{
-  "success": true,
-  "result": {
-    "totalActivities": 1,
-    "period": {
-      "start": "2023-01-01T12:00:00Z",
-      "end": "2023-01-01T12:00:00Z"
-    },
-    "totals": {
-      "distance": 5,
-      "distanceFormatted": "5.00 km",
-      "duration": 1500,
-      "durationFormatted": "00:25:00"
-    },
-    "averages": {
-      "distance": 5,
-      "distanceFormatted": "5.00 km",
-      "duration": 1500,
-      "durationFormatted": "00:25:00",
-      "pace": 300,
-      "paceFormatted": "5:00/km"
-    }
-    // Additional summary data...
-  }
 }
 ```
 
@@ -203,6 +239,7 @@ MIT
 
 ## Acknowledgements
 
-- [NIP-90](https://github.com/nostr-protocol/nips/blob/master/90.md)
+- [NIP-90](https://github.com/nostr-protocol/nips/blob/master/90.md) - Nostr Data Vending Machines
+- [NIP-101e](https://github.com/nostr-protocol/nips/pull/1816) - Workout Events
 - [nostr-tools](https://github.com/nbd-wtf/nostr-tools)
 - [nostrdvm Python Framework](https://github.com/believethehype/nostrdvm) 
